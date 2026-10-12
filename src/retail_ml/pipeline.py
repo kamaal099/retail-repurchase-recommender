@@ -6,6 +6,7 @@ from pathlib import Path
 
 from sklearn.model_selection import train_test_split
 
+from .artifacts import save_artifacts
 from .cleaning import clean_transactions
 from .config import Config
 from .data_loader import RetailDataLoader
@@ -73,6 +74,9 @@ def run(config: Config) -> dict:
     reg.feature_importance(FEATURE_COLUMNS).to_csv(out / "feature_importance_regressor.csv")
     for name, frame in run_kpi_queries(sales).items():
         frame.to_csv(out / f"kpi_{name}.csv", index=False)
+    save_artifacts(config.artifact_dir, clf.best_model, reg.best_model,
+                   features[FEATURE_COLUMNS], split.history, sales)
+    logger.info("Saved API artifacts to %s", config.artifact_dir.resolve())
     logger.info("Done. Results written to %s", out.resolve())
     return results
 
@@ -81,10 +85,12 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", default="data")
     parser.add_argument("--output-dir", default="reports")
+    parser.add_argument("--artifact-dir", default="artifacts")
     parser.add_argument("--horizon-days", type=int, default=90)
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     config = Config(data_dir=Path(args.data_dir), output_dir=Path(args.output_dir),
+                    artifact_dir=Path(args.artifact_dir),
                     horizon_days=args.horizon_days)
     try:
         results = run(config)

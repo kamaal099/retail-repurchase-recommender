@@ -53,10 +53,12 @@ class BaseRecommender(ABC):
             scores = np.array(self._score(sub), dtype=np.float32)
             scores[sub.toarray() > 0] = -np.inf  # never recommend what they already bought
             top = np.argpartition(-scores, k - 1, axis=1)[:, :k]
-            order = np.argsort(-np.take_along_axis(scores, top, axis=1), axis=1)
+            top_scores = np.take_along_axis(scores, top, axis=1)
+            order = np.argsort(-top_scores, axis=1)
             top = np.take_along_axis(top, order, axis=1)
-            for cid, idx in zip(ids[start:start + self.batch_size], top):
-                out[int(cid)] = self.items[idx].tolist()
+            top_scores = np.take_along_axis(top_scores, order, axis=1)
+            for cid, idx, sc in zip(ids[start:start + self.batch_size], top, top_scores):
+                out[int(cid)] = self.items[idx[np.isfinite(sc)]].tolist()  # drop already-bought
         return out
 
 
