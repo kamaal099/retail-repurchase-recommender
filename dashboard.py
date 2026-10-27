@@ -387,7 +387,9 @@ def render_customer_workspace(api_url: str) -> None:
                               "thickness": .8, "value": probability * 100},
             },
         ))
-        gauge.update_layout(**{**PLOT_LAYOUT, "height": 250, "margin": {"l": 20, "r": 20, "t": 50, "b": 8}})
+        # Keep the outer 0%/100% tick labels inside the chart card on narrow screens.
+        gauge.update_traces(domain={"x": [0.09, 0.91], "y": [0.04, 0.92]})
+        gauge.update_layout(**{**PLOT_LAYOUT, "height": 270, "margin": {"l": 28, "r": 28, "t": 50, "b": 16}})
         st.plotly_chart(gauge, use_container_width=True, config={"displayModeBar": False})
         band = "Higher modelled propensity" if probability >= .66 else "Middle modelled propensity" if probability >= .33 else "Lower modelled propensity"
         st.caption(f"{band} · heuristic band only; probability calibration and campaign thresholds should be validated before operational use.")
