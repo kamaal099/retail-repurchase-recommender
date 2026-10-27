@@ -8,7 +8,7 @@ services:
     healthCheckPath: /health
     envVars:
       - key: PYTHON_VERSION
-        value: 3.14.8
+        value: 3.13.11
       - key: PYTHONPATH
         value: src
       - key: API_KEY
