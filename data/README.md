@@ -7,4 +7,4 @@ This project uses the **Online Retail II** dataset from the UCI Machine Learning
 - The workbook is approximately 43.5 MB. For local runs, place `online_retail_II.xlsx` or a supported CSV directly in this folder.
 - The loader accepts `.xlsx` (both sheets are read and de-duplicated) or `.csv`.
 
-For the Render deployment blueprint, `scripts/build_demo_service.py` fetches the source dataset through the UCI dataset API during the build, writes a temporary CSV, builds the model artifacts, and deletes the temporary CSV after the pipeline completes. The downloaded source dataset and generated artifact files are not committed to Git.
+For the Render deployment blueprint, `scripts/build_demo_service.py` downloads the official UCI ZIP archive from `https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip`, extracts `online_retail_II.xlsx` to a temporary build location, trains the models, and removes the workbook afterward. Generated model/customer-history artifacts are not committed to Git.
