@@ -1,10 +1,11 @@
 """FastAPI service: repurchase probability, predicted spend and product recommendations."""
+import hmac
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 
 from . import __version__
 from .artifacts import load_artifacts
@@ -22,6 +23,12 @@ def create_app(artifact_dir=None) -> FastAPI:
     app = FastAPI(title="Retail Repurchase & Recommendation API",
                   version=__version__, lifespan=lifespan)
 
+    def require_api_key(x_api_key: str | None = Header(default=None)):
+        expected = os.getenv("API_KEY")
+        # Local development remains frictionless when API_KEY is unset.
+        if expected and (not x_api_key or not hmac.compare_digest(x_api_key, expected)):
+            raise HTTPException(status_code=401, detail="Missing or invalid API key")
+
     def customer_row(request: Request, customer_id: int):
         features = request.app.state.bundle.features
         if customer_id not in features.index:
@@ -34,7 +41,7 @@ def create_app(artifact_dir=None) -> FastAPI:
         return {"status": "ok", "customers": int(len(bundle.features)),
                 "products": int(len(bundle.recommender.items))}
 
-    @app.get("/customers/{customer_id}/repurchase")
+    @app.get("/customers/{customer_id}/repurchase", dependencies=[Depends(require_api_key)])
     def repurchase(customer_id: int, request: Request):
         bundle = request.app.state.bundle
         row = customer_row(request, customer_id)
@@ -44,7 +51,7 @@ def create_app(artifact_dir=None) -> FastAPI:
                 "repurchase_probability_90d": round(probability, 4),
                 "predicted_spend_90d_gbp": round(spend, 2)}
 
-    @app.get("/customers/{customer_id}/recommendations")
+    @app.get("/customers/{customer_id}/recommendations", dependencies=[Depends(require_api_key)])
     def recommendations(customer_id: int, request: Request,
                         k: int = Query(10, ge=1, le=50)):
         bundle = request.app.state.bundle

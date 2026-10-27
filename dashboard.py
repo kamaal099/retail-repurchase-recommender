@@ -168,9 +168,25 @@ def check_api_health(base_url: str) -> tuple[bool, dict[str, Any] | str]:
         return False, "API health endpoint returned invalid JSON."
 
 
-def request_payload(base_url: str, path: str) -> tuple[dict[str, Any] | None, str | None]:
+def runtime_setting(name: str, default: str = "") -> str:
+    """Read a Streamlit secret first, then an environment variable."""
     try:
-        response = requests.get(f"{base_url.rstrip('/')}{path}", timeout=8)
+        value = st.secrets.get(name)
+        if value:
+            return str(value)
+    except Exception:
+        # Streamlit raises when no secrets file/configuration exists in local development.
+        pass
+    return os.getenv(name, default)
+
+
+def request_payload(base_url: str, path: str) -> tuple[dict[str, Any] | None, str | None]:
+    headers = {}
+    api_key = runtime_setting("RETAIL_API_KEY")
+    if api_key:
+        headers["X-API-Key"] = api_key
+    try:
+        response = requests.get(f"{base_url.rstrip('/')}{path}", headers=headers, timeout=8)
     except requests.RequestException as exc:
         return None, f"Cannot reach the API at {base_url}. Check that FastAPI is running and the URL is correct. Details: {exc}"
     try:
@@ -517,7 +533,7 @@ with st.sidebar:
     )
     st.markdown("---")
     st.markdown('<div class="eyebrow">INFERENCE SERVICE</div>', unsafe_allow_html=True)
-    default_api_url = os.getenv("RETAIL_API_URL", "http://127.0.0.1:8000")
+    default_api_url = runtime_setting("RETAIL_API_URL", "http://127.0.0.1:8000")
     api_url = st.text_input("FastAPI base URL", value=default_api_url, help="Set RETAIL_API_URL when the API runs on a separate host.")
     api_url = api_url.strip().rstrip("/")
     if api_url:
