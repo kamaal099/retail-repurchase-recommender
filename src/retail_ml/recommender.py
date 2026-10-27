@@ -20,6 +20,13 @@ class BaseRecommender(ABC):
     def fit(self, history: pd.DataFrame):
         if history.empty:
             raise DataValidationError("Cannot fit a recommender on empty history.")
+        required = {"customer_id", "stock_code"}
+        missing = required.difference(history.columns)
+        if missing:
+            raise DataValidationError(f"History is missing required columns: {sorted(missing)}")
+        history = history.dropna(subset=["customer_id", "stock_code"])
+        if history.empty:
+            raise DataValidationError("No valid customer/product pairs in history.")
         users = np.sort(history["customer_id"].unique())
         self.items = np.sort(history["stock_code"].unique())
         self.user_index = pd.Index(users)
@@ -33,7 +40,7 @@ class BaseRecommender(ABC):
         return self
 
     def _fit_scores(self):
-        """Hook for subclasses that precompute something after the matrix is built."""
+        """Hook for subclasses to precompute something after the matrix is built."""
 
     @abstractmethod
     def _score(self, user_rows: sparse.csr_matrix) -> np.ndarray:
@@ -42,15 +49,21 @@ class BaseRecommender(ABC):
     def recommend(self, customer_ids, k: int = 10) -> dict[int, list[str]]:
         if self.matrix is None:
             raise NotFittedError("Call fit() before recommend().")
+        if isinstance(k, bool) or not isinstance(k, (int, np.integer)) or k < 1:
+            raise ValueError("k must be a positive integer.")
         ids = np.asarray(list(customer_ids))
+        if ids.size == 0:
+            return {}
         rows = self.user_index.get_indexer(ids)
         keep = rows >= 0
         ids, rows = ids[keep], rows[keep]
-        k = min(k, len(self.items))
+        if not len(rows):
+            return {}
+        k = min(int(k), len(self.items))
         out: dict[int, list[str]] = {}
         for start in range(0, len(rows), self.batch_size):
             sub = self.matrix[rows[start:start + self.batch_size]]
-            scores = np.array(self._score(sub), dtype=np.float32)
+            scores = np.array(self._score(sub), dtype=np.float32, copy=True)
             scores[sub.toarray() > 0] = -np.inf  # never recommend what they already bought
             top = np.argpartition(-scores, k - 1, axis=1)[:, :k]
             top_scores = np.take_along_axis(scores, top, axis=1)
@@ -58,7 +71,7 @@ class BaseRecommender(ABC):
             top = np.take_along_axis(top, order, axis=1)
             top_scores = np.take_along_axis(top_scores, order, axis=1)
             for cid, idx, sc in zip(ids[start:start + self.batch_size], top, top_scores):
-                out[int(cid)] = self.items[idx[np.isfinite(sc)]].tolist()  # drop already-bought
+                out[int(cid)] = self.items[idx[np.isfinite(sc)]].tolist()
         return out
 
 
@@ -85,7 +98,9 @@ class ItemItemRecommender(BaseRecommender):
 
 def evaluate_recommender(model: BaseRecommender, history: pd.DataFrame,
                          future: pd.DataFrame, k: int = 10) -> dict[str, float]:
-    """Hit-rate@k and recall@k on NEW items bought in the future window."""
+    """Evaluate top-k recommendations on future items not seen in history."""
+    if isinstance(k, bool) or not isinstance(k, (int, np.integer)) or k < 1:
+        raise ValueError("k must be a positive integer.")
     seen = history.groupby("customer_id")["stock_code"].agg(set)
     bought = future.groupby("customer_id")["stock_code"].agg(set)
     targets = {}
@@ -97,11 +112,16 @@ def evaluate_recommender(model: BaseRecommender, history: pd.DataFrame,
     if not targets:
         raise DataValidationError("No customers with new items in the future window.")
     recs = model.recommend(list(targets), k)
-    hits, recalls = [], []
+    hits, recalls, recommended = [], [], set()
     for cid, wanted in targets.items():
-        got = set(recs.get(cid, [])) & wanted
+        got = set(recs.get(cid, []))
+        recommended.update(got)
+        got &= wanted
         hits.append(1.0 if got else 0.0)
         recalls.append(len(got) / len(wanted))
+    catalog_size = len(model.items) if model.items is not None else 0
     return {f"hit_rate@{k}": float(np.mean(hits)),
             f"recall@{k}": float(np.mean(recalls)),
+            f"coverage@{k}": float(len(recommended) / catalog_size) if catalog_size else 0.0,
+            "catalog_items": int(catalog_size),
             "n_customers_evaluated": len(targets)}
