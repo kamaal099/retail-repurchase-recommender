@@ -123,6 +123,39 @@ python -m streamlit run dashboard.py
 
 For a public deployment, deploy the FastAPI service and Streamlit console separately, configure the deployed console's `RETAIL_API_URL` to the reachable HTTPS API URL, and enable appropriate CORS/authentication, rate limiting, and secret management if needed. Do not expose a development server or assume the local `127.0.0.1` URL is reachable from a hosted Streamlit app.
 
+## Public deployment
+
+This repository includes a Render Blueprint for the FastAPI backend. It builds the inference artifacts from the official UCI Online Retail II source during deployment, then removes the temporary raw CSV. The dataset is published under CC BY 4.0; attribution is included in `data/README.md`. Model artifacts and transaction-level files remain excluded from Git.
+
+### 1. Deploy the API on Render
+
+1. Merge this deployment setup into `main`, then open [Render](https://dashboard.render.com/).
+2. Choose **New → Blueprint** and connect `kamaal099/retail-repurchase-recommender` on branch `main`.
+3. Review `render.yaml`. When prompted for the required `API_KEY`, generate a random key locally with:
+
+   ```powershell
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+4. Keep that key private. Render uses it to protect the prediction endpoints. The build downloads the public dataset and trains artifacts; allow the first build to finish before testing `/health`.
+5. Copy the deployed service URL, e.g. `https://your-service.onrender.com`.
+
+Render's free web service can sleep after inactivity, so the first request may be delayed. The `/health` endpoint is intentionally public for service monitoring; customer prediction and recommendation routes require the API key when `API_KEY` is configured.
+
+### 2. Deploy the Streamlit console
+
+1. Open [Streamlit Community Cloud](https://share.streamlit.io/), choose **Create app**, and select this repository, branch `main`, and entrypoint `dashboard.py`.
+2. Open the app's **Settings → Secrets** and add the same private API key and the deployed Render URL:
+
+   ```toml
+   RETAIL_API_URL = "https://your-service.onrender.com"
+   RETAIL_API_KEY = "paste-the-same-private-key-here"
+   ```
+
+3. Save and redeploy. In the Streamlit app, the sidebar should show **API CONNECTED**. Test Customer 360 with a known demo customer, such as `12346`.
+
+Do not commit API keys to GitHub or place them in `dashboard.py`. Configure the key only in Render's environment settings and Streamlit Community Cloud's Secrets panel. The local API remains convenient without a key when the `API_KEY` environment variable is unset.
+
 ## Engineering
 
 - Modular `src/retail_ml` package with custom exceptions and logging
