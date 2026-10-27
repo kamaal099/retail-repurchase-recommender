@@ -387,7 +387,7 @@ def render_customer_workspace(api_url: str) -> None:
                               "thickness": .8, "value": probability * 100},
             },
         ))
-        gauge.update_layout(**PLOT_LAYOUT, height=250, margin={"l": 20, "r": 20, "t": 50, "b": 8})
+        gauge.update_layout(**{**PLOT_LAYOUT, "height": 250, "margin": {"l": 20, "r": 20, "t": 50, "b": 8}})
         st.plotly_chart(gauge, use_container_width=True, config={"displayModeBar": False})
         band = "Higher modelled propensity" if probability >= .66 else "Middle modelled propensity" if probability >= .33 else "Lower modelled propensity"
         st.caption(f"{band} · heuristic band only; probability calibration and campaign thresholds should be validated before operational use.")
