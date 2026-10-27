@@ -95,6 +95,34 @@ Open `http://127.0.0.1:8000/docs` to explore:
 - `GET /customers/{customer_id}/repurchase` — repurchase probability and predicted spend
 - `GET /customers/{customer_id}/recommendations?k=10` — top-k products
 
+## Interactive Retail Intelligence Console
+
+A Streamlit analyst workspace sits alongside the FastAPI inference service. It includes a KPI command center, validation-based model diagnostics, a customer 360 view, repurchase-propensity and predicted-spend visuals, and interactive top-k product recommendations.
+
+### Run locally
+
+Start the FastAPI service in the first terminal after running the pipeline and creating artifacts:
+
+```powershell
+$env:PYTHONPATH = "src"
+python -m uvicorn retail_ml.api:app --host 127.0.0.1 --port 8000
+```
+
+In a second terminal, from the repository root:
+
+```powershell
+python -m streamlit run dashboard.py
+```
+
+The console opens in your browser, normally at `http://localhost:8501`. The API defaults to `http://127.0.0.1:8000`. Override it with the `RETAIL_API_URL` environment variable when the API is hosted elsewhere:
+
+```powershell
+$env:RETAIL_API_URL = "https://your-api-host.example"
+python -m streamlit run dashboard.py
+```
+
+For a public deployment, deploy the FastAPI service and Streamlit console separately, configure the deployed console's `RETAIL_API_URL` to the reachable HTTPS API URL, and enable appropriate CORS/authentication, rate limiting, and secret management if needed. Do not expose a development server or assume the local `127.0.0.1` URL is reachable from a hosted Streamlit app.
+
 ## Engineering
 
 - Modular `src/retail_ml` package with custom exceptions and logging
