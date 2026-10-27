@@ -1,7 +1,16 @@
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
-from scripts.build_demo_service import CANONICAL_COLUMNS, normalize_source_columns
+SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "build_demo_service.py"
+SPEC = spec_from_file_location("build_demo_service", SCRIPT_PATH)
+assert SPEC is not None and SPEC.loader is not None
+MODULE = module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
+CANONICAL_COLUMNS = MODULE.CANONICAL_COLUMNS
+normalize_source_columns = MODULE.normalize_source_columns
 
 
 def test_normalize_source_columns_accepts_common_uci_headers():
