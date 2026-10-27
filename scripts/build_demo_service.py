@@ -1,78 +1,96 @@
-"""Build API artifacts from the public UCI Online Retail II dataset during cloud deployment.
+"""Build API artifacts from the official UCI Online Retail II archive for cloud deployment.
 
-This is intended for a deployment build step, not for every API startup. The source
-dataset is CC BY 4.0; see data/README.md for attribution. The downloaded CSV is
-deleted after training when this script created it, and artifacts remain in the
-built service image (they are intentionally ignored by Git).
+The UCI import API currently exposes metadata for Online Retail II but no tabular
+CSV URL, so ucimlrepo.fetch_ucirepo(id=502) cannot import it. This helper downloads
+UCI's published ZIP archive and extracts only the workbook required by the project
+loader. The temporary dataset copy is removed after model generation.
 """
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
+
+import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
-CSV_PATH = DATA_DIR / "online_retail_II.csv"
-CANONICAL_COLUMNS = [
-    "InvoiceNo", "StockCode", "Description", "Quantity",
-    "InvoiceDate", "UnitPrice", "CustomerID", "Country",
-]
-COLUMN_ALIASES = {
-    "InvoiceNo": ("InvoiceNo", "Invoice", "invoice"),
-    "StockCode": ("StockCode", "stock_code"),
-    "Description": ("Description", "description"),
-    "Quantity": ("Quantity", "quantity"),
-    "InvoiceDate": ("InvoiceDate", "invoice_date"),
-    "UnitPrice": ("UnitPrice", "Price", "price"),
-    "CustomerID": ("CustomerID", "Customer ID", "customer_id"),
-    "Country": ("Country", "country"),
-}
+XLSX_PATH = DATA_DIR / "online_retail_II.xlsx"
+TEMP_ZIP_PATH = DATA_DIR / "online_retail_II.zip"
+UCI_ARCHIVE_URL = "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
+EXPECTED_WORKBOOK = "online_retail_II.xlsx"
+SUPPORTED_INPUT_SUFFIXES = {".xlsx", ".xls", ".csv"}
 
 
-def normalize_source_columns(raw):
-    """Accept common UCI/CSV header variants and return the loader's canonical schema."""
-    selected = {}
-    missing = []
-    for canonical, aliases in COLUMN_ALIASES.items():
-        match = next((column for column in aliases if column in raw.columns), None)
-        if match is None:
-            missing.append(canonical)
-        else:
-            selected[canonical] = match
-    if missing:
-        raise RuntimeError(
-            "UCI dataset columns do not match the expected schema. "
-            f"Missing: {missing}. Available columns: {list(raw.columns)}"
-        )
-    normalized = raw[[selected[column] for column in CANONICAL_COLUMNS]].copy()
-    normalized.columns = CANONICAL_COLUMNS
-    return normalized
+def extract_workbook_from_archive(archive_path: Path, destination: Path) -> Path:
+    """Extract only the expected workbook from a ZIP; never extract arbitrary paths."""
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            matches = [
+                name for name in archive.namelist()
+                if Path(name).name.casefold() == EXPECTED_WORKBOOK.casefold()
+            ]
+            if not matches:
+                raise RuntimeError(
+                    f"UCI archive did not contain {EXPECTED_WORKBOOK!r}. "
+                    f"Archive members: {archive.namelist()[:20]}"
+                )
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(matches[0], "r") as source, destination.open("wb") as target:
+                shutil.copyfileobj(source, target, length=1024 * 1024)
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError("The UCI download was not a valid ZIP archive.") from exc
+
+    if not destination.is_file() or destination.stat().st_size == 0:
+        raise RuntimeError("The UCI workbook was extracted as an empty file.")
+    return destination
 
 
-def download_dataset() -> None:
-    from ucimlrepo import fetch_ucirepo
-
-    print("Fetching UCI Online Retail II (dataset ID 502; CC BY 4.0)...", flush=True)
-    dataset = fetch_ucirepo(id=502)
-    raw = dataset.data.original
-    if raw is None or raw.empty:
-        raise RuntimeError("UCI returned an empty Online Retail II dataset.")
-    normalized = normalize_source_columns(raw)
+def download_dataset() -> Path:
+    """Download and extract the official UCI ZIP archive to the expected workbook path."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    normalized.to_csv(CSV_PATH, index=False)
-    print(f"Saved {len(raw):,} source rows to temporary build data.", flush=True)
+    try:
+        print("Downloading Online Retail II archive directly from UCI...", flush=True)
+        with requests.get(
+            UCI_ARCHIVE_URL,
+            stream=True,
+            timeout=(20, 180),
+            headers={"User-Agent": "retail-repurchase-recommender/1.0"},
+        ) as response:
+            response.raise_for_status()
+            with TEMP_ZIP_PATH.open("wb") as archive_file:
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        archive_file.write(chunk)
+        if TEMP_ZIP_PATH.stat().st_size < 1024:
+            raise RuntimeError("The UCI download was unexpectedly small; refusing to train.")
+        extracted = extract_workbook_from_archive(TEMP_ZIP_PATH, XLSX_PATH)
+        print(f"Extracted UCI workbook to {extracted}.", flush=True)
+        return extracted
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Could not download the UCI dataset from {UCI_ARCHIVE_URL}: {exc}"
+        ) from exc
+    finally:
+        TEMP_ZIP_PATH.unlink(missing_ok=True)
 
 
 def main() -> int:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    created_csv = not CSV_PATH.exists()
+    source_files = [
+        path for path in DATA_DIR.iterdir()
+        if path.is_file() and path.suffix.lower() in SUPPORTED_INPUT_SUFFIXES
+    ]
+    created_xlsx = not source_files
+
     try:
-        if created_csv:
+        if created_xlsx:
             download_dataset()
         else:
-            print(f"Using existing dataset at {CSV_PATH}.", flush=True)
+            print(f"Using existing local dataset: {source_files[0]}.", flush=True)
 
         env = os.environ.copy()
         source_path = str(ROOT / "src")
@@ -91,15 +109,18 @@ def main() -> int:
             "classifier.joblib", "regressor.joblib", "customer_features.csv",
             "purchases.csv", "catalog.csv",
         ]
-        missing = [name for name in required_artifacts if not (ROOT / "artifacts" / name).is_file()]
+        missing = [
+            name for name in required_artifacts
+            if not (ROOT / "artifacts" / name).is_file()
+        ]
         if missing:
             raise RuntimeError(f"Pipeline completed without required artifacts: {missing}")
         print("Model artifacts are ready for the API.", flush=True)
         return 0
     finally:
-        if created_csv:
-            CSV_PATH.unlink(missing_ok=True)
-            print("Removed temporary downloaded dataset copy.", flush=True)
+        if created_xlsx:
+            XLSX_PATH.unlink(missing_ok=True)
+            print("Removed temporary downloaded dataset workbook.", flush=True)
 
 
 if __name__ == "__main__":
