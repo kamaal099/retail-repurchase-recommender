@@ -15,10 +15,40 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 CSV_PATH = DATA_DIR / "online_retail_II.csv"
-REQUIRED_COLUMNS = [
+CANONICAL_COLUMNS = [
     "InvoiceNo", "StockCode", "Description", "Quantity",
     "InvoiceDate", "UnitPrice", "CustomerID", "Country",
 ]
+COLUMN_ALIASES = {
+    "InvoiceNo": ("InvoiceNo", "Invoice", "invoice"),
+    "StockCode": ("StockCode", "stock_code"),
+    "Description": ("Description", "description"),
+    "Quantity": ("Quantity", "quantity"),
+    "InvoiceDate": ("InvoiceDate", "invoice_date"),
+    "UnitPrice": ("UnitPrice", "Price", "price"),
+    "CustomerID": ("CustomerID", "Customer ID", "customer_id"),
+    "Country": ("Country", "country"),
+}
+
+
+def normalize_source_columns(raw):
+    """Accept common UCI/CSV header variants and return the loader's canonical schema."""
+    selected = {}
+    missing = []
+    for canonical, aliases in COLUMN_ALIASES.items():
+        match = next((column for column in aliases if column in raw.columns), None)
+        if match is None:
+            missing.append(canonical)
+        else:
+            selected[canonical] = match
+    if missing:
+        raise RuntimeError(
+            "UCI dataset columns do not match the expected schema. "
+            f"Missing: {missing}. Available columns: {list(raw.columns)}"
+        )
+    normalized = raw[[selected[column] for column in CANONICAL_COLUMNS]].copy()
+    normalized.columns = CANONICAL_COLUMNS
+    return normalized
 
 
 def download_dataset() -> None:
@@ -29,14 +59,9 @@ def download_dataset() -> None:
     raw = dataset.data.original
     if raw is None or raw.empty:
         raise RuntimeError("UCI returned an empty Online Retail II dataset.")
-    missing = [column for column in REQUIRED_COLUMNS if column not in raw.columns]
-    if missing:
-        raise RuntimeError(
-            "UCI dataset columns do not match the expected schema. "
-            f"Missing: {missing}. Available columns: {list(raw.columns)}"
-        )
+    normalized = normalize_source_columns(raw)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    raw[REQUIRED_COLUMNS].to_csv(CSV_PATH, index=False)
+    normalized.to_csv(CSV_PATH, index=False)
     print(f"Saved {len(raw):,} source rows to temporary build data.", flush=True)
 
 
