@@ -1,5 +1,96 @@
 {
-  "status": "stale_requires_regeneration",
-  "message": "The previous metrics were generated with model selection on a held-out test set. They are intentionally marked stale after correcting the evaluation protocol. Download the dataset and rerun the pipeline to regenerate validation metrics, final untouched-test metrics, and recommender coverage metrics.",
-  "command": "PYTHONPATH=src python -m retail_ml.pipeline --data-dir data --output-dir reports --artifact-dir artifacts"
+  "evaluation_protocol": {
+    "customer_split": {
+      "train": 0.5999,
+      "validation": 0.2,
+      "test": 0.2002
+    },
+    "model_selection": "validation only",
+    "final_test": "selected model refit on train + validation, then evaluated once",
+    "temporal_horizon_days": 90,
+    "test_size_config": 0.2
+  },
+  "data": {
+    "sales_rows": 776577,
+    "customers_modelled": 5256,
+    "cutoff_date": "2011-09-11",
+    "last_future_date": "2011-12-09",
+    "repurchase_rate": 0.4355022831050228
+  },
+  "classification": {
+    "best_model": "random_forest",
+    "validation_metrics_by_model": {
+      "logreg_l1": {
+        "roc_auc": 0.8152867883679314,
+        "pr_auc": 0.7954559035272029,
+        "f1": 0.7047413793103449
+      },
+      "logreg_l2": {
+        "roc_auc": 0.8152168310051031,
+        "pr_auc": 0.7953260633269608,
+        "f1": 0.703344120819849
+      },
+      "random_forest": {
+        "roc_auc": 0.8187920204422778,
+        "pr_auc": 0.801161756299279,
+        "f1": 0.704
+      },
+      "xgboost": {
+        "roc_auc": 0.8158611751364168,
+        "pr_auc": 0.7927854300170935,
+        "f1": 0.6803377563329313
+      }
+    },
+    "final_test_metrics": {
+      "roc_auc": 0.810749415552909,
+      "pr_auc": 0.7935322149791922,
+      "f1": 0.6956521739130435
+    }
+  },
+  "regression": {
+    "best_model": "random_forest",
+    "validation_metrics_by_model": {
+      "ridge_l2": {
+        "rmse": 2.5940376829820857,
+        "mae": 2.222059740574263,
+        "r2": 0.3741632959613064
+      },
+      "lasso_l1": {
+        "rmse": 2.591820264369931,
+        "mae": 2.224160087107818,
+        "r2": 0.375232786072786
+      },
+      "random_forest": {
+        "rmse": 2.5869764447702117,
+        "mae": 2.129002946732198,
+        "r2": 0.3775658427655886
+      },
+      "xgboost": {
+        "rmse": 2.6154045556594174,
+        "mae": 2.1334111684461825,
+        "r2": 0.3638109051696964
+      }
+    },
+    "final_test_metrics": {
+      "rmse": 2.5321575080659975,
+      "mae": 2.0899802195761836,
+      "r2": 0.36979608641763284
+    }
+  },
+  "recommendation": {
+    "popularity_baseline": {
+      "hit_rate@10": 0.29038112522686027,
+      "recall@10": 0.016802144399288288,
+      "coverage@10": 0.018005851901868108,
+      "catalog_items": 4443,
+      "n_customers_evaluated": 2204
+    },
+    "item_item_cf": {
+      "hit_rate@10": 0.3620689655172414,
+      "recall@10": 0.030915625182898896,
+      "coverage@10": 0.17645734863830745,
+      "catalog_items": 4443,
+      "n_customers_evaluated": 2204
+    }
+  }
 }
