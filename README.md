@@ -60,9 +60,26 @@ docker run --rm -v "$PWD/data:/app/data" -v "$PWD/reports:/app/reports" retail-m
 
 ## Results
 
-**The metrics currently in `reports/metrics.json` are marked stale** because the previous model-selection process used the test set to choose the winning model. Do not quote the earlier performance figures as final results.
+Results below were regenerated from the Online Retail II CSV under the validation-based model-selection protocol. The saved report is `reports/metrics.json`. The evaluation used 5,256 modelled customers, 776,577 cleaned sales rows, and a 90-day future window from 11 Sep 2011 through 9 Dec 2011. Customers were split approximately 60% train, 20% validation, and 20% test; the selected models were refit on train + validation before final test scoring.
 
-After downloading the dataset, rerun the pipeline using the command above. It will regenerate `reports/metrics.json`, feature-importance reports, KPI exports, and model artifacts under the corrected evaluation protocol. Only report the regenerated final-test results after the run completes successfully.
+| Task | Selected model (validation) | Final test metrics |
+|---|---|---|
+| Repurchase classification | Random Forest | ROC-AUC 0.811; PR-AUC 0.794; F1 0.696 |
+| Spend regression | Random Forest | RMSE 2.532; MAE 2.090; R² 0.370 |
+
+Regression metrics are measured on the modelled log(1 + future spend) target, not directly in GBP. The API converts predicted spend back to GBP.
+
+### Recommendation benchmark
+
+Evaluated on 2,204 customers with new products in the future window.
+
+| Metric at k=10 | Popularity baseline | Item-item CF |
+|---|---:|---:|
+| Hit rate | 29.04% | 36.21% |
+| Recall | 1.68% | 3.09% |
+| Catalog coverage | 1.80% | 17.65% |
+
+Item-item CF improves historical hit rate by about 7.17 percentage points over popularity. These are offline historical metrics and do not establish incremental revenue or causal business lift. Results may vary across time; rolling-origin validation and a controlled online experiment would provide stronger evidence.
 
 ## API
 
