@@ -1,4 +1,4 @@
-"""Model suites: several candidate models per task, compared on a held-out set."""
+"""Candidate model suites selected on validation data, never on the final test set."""
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -15,8 +15,15 @@ from .exceptions import ModelTrainingError, NotFittedError
 
 
 def _linear(estimator):
-    # All features are non-negative and right-skewed, so log1p then scale.
+    # Features are non-negative and right-skewed; log1p then scale.
     return make_pipeline(FunctionTransformer(np.log1p), StandardScaler(), estimator)
+
+
+def _concat_rows(left, right):
+    """Concatenate train/validation rows for pandas or NumPy inputs."""
+    if isinstance(left, (pd.Series, pd.DataFrame)) and isinstance(right, type(left)):
+        return pd.concat([left, right], axis=0)
+    return np.concatenate([np.asarray(left), np.asarray(right)], axis=0)
 
 
 class BaseModelSuite(ABC):
@@ -27,6 +34,8 @@ class BaseModelSuite(ABC):
         self.random_state = random_state
         self.models: dict = {}
         self.metrics: dict[str, dict[str, float]] = {}
+        self.validation_metrics: dict[str, dict[str, float]] = {}
+        self.test_metrics: dict[str, float] = {}
         self.best_name: str | None = None
 
     @abstractmethod
@@ -35,16 +44,34 @@ class BaseModelSuite(ABC):
     @abstractmethod
     def _score(self, model, X, y) -> dict[str, float]: ...
 
-    def fit_evaluate(self, X_train, y_train, X_test, y_test) -> dict[str, dict[str, float]]:
+    def fit_evaluate(self, X_train, y_train, X_valid, y_valid, X_test=None, y_test=None):
+        """Fit candidates on train; select by validation; optionally test once."""
+        self.models = {}
+        self.validation_metrics = {}
+        self.test_metrics = {}
         for name, model in self._candidates().items():
             try:
                 model.fit(X_train, y_train)
+                self.models[name] = model
+                self.validation_metrics[name] = self._score(model, X_valid, y_valid)
             except Exception as exc:
-                raise ModelTrainingError(f"{name} failed to train: {exc}") from exc
-            self.models[name] = model
-            self.metrics[name] = self._score(model, X_test, y_test)
+                raise ModelTrainingError(f"{name} failed to train/evaluate: {exc}") from exc
         pick = max if self.higher_is_better else min
-        self.best_name = pick(self.metrics, key=lambda n: self.metrics[n][self.primary_metric])
+        self.best_name = pick(
+            self.validation_metrics,
+            key=lambda n: self.validation_metrics[n][self.primary_metric],
+        )
+        self.metrics = self.validation_metrics
+        if X_test is not None or y_test is not None:
+            if X_test is None or y_test is None:
+                raise ValueError("X_test and y_test must be provided together.")
+            selected = self._candidates()[self.best_name]
+            try:
+                selected.fit(_concat_rows(X_train, X_valid), _concat_rows(y_train, y_valid))
+                self.test_metrics = self._score(selected, X_test, y_test)
+                self.models[self.best_name] = selected
+            except Exception as exc:
+                raise ModelTrainingError(f"Selected model {self.best_name} failed final fit/test: {exc}") from exc
         return self.metrics
 
     @property
@@ -90,7 +117,7 @@ class ClassifierSuite(BaseModelSuite):
         return {
             "roc_auc": float(roc_auc_score(y, proba)),
             "pr_auc": float(average_precision_score(y, proba)),
-            "f1": float(f1_score(y, (proba >= 0.5).astype(int))),
+            "f1": float(f1_score(y, (proba >= 0.5).astype(int), zero_division=0)),
         }
 
 
