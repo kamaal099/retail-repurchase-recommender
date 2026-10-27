@@ -50,6 +50,18 @@ def test_unknown_customer_and_bad_k(client):
     assert client.get("/customers/1000/recommendations?k=0").status_code == 422
 
 
+def test_inference_routes_require_api_key_when_configured(client, monkeypatch):
+    monkeypatch.setenv("API_KEY", "demo-secret")
+
+    assert client.get("/health").status_code == 200  # health check stays public
+    assert client.get("/customers/1000/repurchase").status_code == 401
+    assert client.get("/customers/1000/recommendations?k=3").status_code == 401
+
+    headers = {"X-API-Key": "demo-secret"}
+    assert client.get("/customers/1000/repurchase", headers=headers).status_code == 200
+    assert client.get("/customers/1000/recommendations?k=3", headers=headers).status_code == 200
+
+
 def test_missing_artifacts_fail_with_clear_error(tmp_path):
     with pytest.raises(DataNotFoundError):
         with TestClient(create_app(tmp_path / "empty")):
