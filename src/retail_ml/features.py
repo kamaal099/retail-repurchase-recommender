@@ -21,12 +21,18 @@ class TemporalSplit:
 
 
 def temporal_split(sales: pd.DataFrame, horizon_days: int) -> TemporalSplit:
-    """History is everything before the cutoff; future is the final `horizon_days`."""
+    """Use exactly horizon_days calendar dates ending on the last transaction date."""
     if sales.empty:
         raise DataValidationError("Cannot split an empty sales table.")
-    cutoff = sales["invoice_date"].max().normalize() - pd.Timedelta(days=horizon_days)
-    history = sales[sales["invoice_date"] < cutoff]
-    future = sales[sales["invoice_date"] >= cutoff]
+    if isinstance(horizon_days, bool) or not isinstance(horizon_days, (int, np.integer)) or horizon_days < 1:
+        raise DataValidationError("horizon_days must be a positive integer.")
+    max_date = pd.to_datetime(sales["invoice_date"], errors="coerce").max()
+    if pd.isna(max_date):
+        raise DataValidationError("Sales must contain valid invoice_date values.")
+    cutoff = max_date.normalize() - pd.Timedelta(days=int(horizon_days) - 1)
+    dates = pd.to_datetime(sales["invoice_date"], errors="coerce")
+    history = sales[dates < cutoff]
+    future = sales[dates >= cutoff]
     if history.empty or future.empty:
         raise DataValidationError("Cutoff leaves history or future window empty.")
     return TemporalSplit(cutoff, history, future)
@@ -67,9 +73,15 @@ def build_customer_features(history: pd.DataFrame, returns: pd.DataFrame,
     cust[["orders_last_90d", "revenue_last_90d"]] = (
         cust[["orders_last_90d", "revenue_last_90d"]].fillna(0))
 
+    # This is a return-line share proxy, not a matched-item return probability:
+    # cancellation lines cannot reliably be paired to their original sales lines.
     returned = returns[returns["invoice_date"] < cutoff].groupby("customer_id").size()
-    lines = history.groupby("customer_id").size()
-    cust["return_rate"] = returned.reindex(cust.index).fillna(0) / lines.reindex(cust.index)
+    sold_lines = history.groupby("customer_id").size()
+    total_lines = sold_lines.add(returned, fill_value=0)
+    cust["return_rate"] = (
+        returned.reindex(cust.index).fillna(0) /
+        total_lines.reindex(cust.index).replace(0, np.nan)
+    ).fillna(0).clip(0, 1)
 
     is_uk = history.groupby("customer_id")["country"].last() == "United Kingdom"
     cust["is_uk"] = is_uk.reindex(cust.index).astype(int)
