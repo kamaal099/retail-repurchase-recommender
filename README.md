@@ -125,7 +125,7 @@ For a public deployment, deploy the FastAPI service and Streamlit console separa
 
 ## Public deployment
 
-This repository includes a Render Blueprint for the FastAPI backend. It builds the inference artifacts from the official UCI Online Retail II source during deployment, then removes the temporary raw CSV. The dataset is published under CC BY 4.0; attribution is included in `data/README.md`. Model artifacts and transaction-level files remain excluded from Git.
+This repository includes a Render Blueprint for the FastAPI backend. It downloads the official UCI Online Retail II ZIP archive directly during deployment, extracts the workbook supported by the project loader, generates inference artifacts, and removes the temporary workbook. The dataset is published under CC BY 4.0; attribution is included in `data/README.md`. Model artifacts and transaction-level files remain excluded from Git.
 
 ### 1. Deploy the API on Render
 
