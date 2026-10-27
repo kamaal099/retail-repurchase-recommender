@@ -2,6 +2,14 @@
 
 End-to-end retail machine-learning project using the **Online Retail II** transaction dataset (a UK online gift retailer, Dec 2009–Dec 2011). It combines customer analytics, predictive modelling, product recommendations, SQL KPIs, and a FastAPI service.
 
+## Live Demo
+
+- **Interactive Retail Intelligence Console:** [Open the Streamlit app](https://retail-repurchase-recommender-edbinjmev9sdndwghbvezn.streamlit.app/)
+- **Hosted FastAPI backend:** [retail-repurchase-api.onrender.com](https://retail-repurchase-api.onrender.com)
+- **Backend health check:** [Open `/health`](https://retail-repurchase-api.onrender.com/health) — the health endpoint is public; prediction and recommendation endpoints require the configured API key.
+
+The dashboard includes the Command Center, Customer 360, and Model Lab. In Customer 360, enter a known customer ID (for example, `12346`) to view repurchase propensity, predicted spend, and ranked product recommendations. The first API request after inactivity can be slower because the Render free service may spin down.
+
 ## Business questions
 
 1. **Repurchase classification:** Is a customer likely to buy in the next 90-day window?
@@ -121,7 +129,12 @@ $env:RETAIL_API_URL = "https://your-api-host.example"
 python -m streamlit run dashboard.py
 ```
 
-For a public deployment, deploy the FastAPI service and Streamlit console separately, configure the deployed console's `RETAIL_API_URL` to the reachable HTTPS API URL, and enable appropriate CORS/authentication, rate limiting, and secret management if needed. Do not expose a development server or assume the local `127.0.0.1` URL is reachable from a hosted Streamlit app.
+The deployed services for this project are:
+- Streamlit frontend: [retail-repurchase-recommender-edbinjmev9sdndwghbvezn.streamlit.app](https://retail-repurchase-recommender-edbinjmev9sdndwghbvezn.streamlit.app/)
+- Render API: [retail-repurchase-api.onrender.com](https://retail-repurchase-api.onrender.com)
+- Public health endpoint: [`/health`](https://retail-repurchase-api.onrender.com/health)
+
+The hosted Streamlit app reads `RETAIL_API_URL` and `RETAIL_API_KEY` from Streamlit Secrets. For a new deployment, configure the API URL to the reachable HTTPS backend and keep the API key only in Render environment settings and Streamlit Secrets. Never commit keys or assume a hosted Streamlit app can reach a local `127.0.0.1` address.
 
 ## Public deployment
 
