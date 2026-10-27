@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 
+import pandas as pd
 from sklearn.model_selection import train_test_split
 
 from .artifacts import save_artifacts
@@ -22,11 +23,10 @@ logger = logging.getLogger("retail_ml")
 
 def run(config: Config) -> dict:
     config.output_dir.mkdir(parents=True, exist_ok=True)
-
     raw = RetailDataLoader(config.data_dir).load()
     sales, returns = clean_transactions(raw)
     split = temporal_split(sales, config.horizon_days)
-    logger.info("Cutoff date: %s", split.cutoff.date())
+    logger.info("First future date (cutoff): %s", split.cutoff.date())
 
     features = add_targets(
         build_customer_features(split.history, returns, split.cutoff), split.future)
@@ -36,36 +36,54 @@ def run(config: Config) -> dict:
     X = features[FEATURE_COLUMNS]
     y_cls = features["will_repurchase"]
     y_reg = log_target(features["future_spend"])
-    X_tr, X_te, ycl_tr, ycl_te, yr_tr, yr_te = train_test_split(
+
+    # Hold out test data first. Select candidates on validation, then refit the
+    # selected model on train + validation before evaluating once on the test set.
+    X_train_valid, X_test, ycl_train_valid, ycl_test, yr_train_valid, yr_test = train_test_split(
         X, y_cls, y_reg, test_size=config.test_size,
         random_state=config.random_state, stratify=y_cls)
+    X_train, X_valid, ycl_train, ycl_valid, yr_train, yr_valid = train_test_split(
+        X_train_valid, ycl_train_valid, yr_train_valid, test_size=0.25,
+        random_state=config.random_state, stratify=ycl_train_valid)
 
-    logger.info("Training classifiers")
+    logger.info("Training classifiers; selecting by validation ROC-AUC")
     clf = ClassifierSuite(config.random_state)
-    clf.fit_evaluate(X_tr, ycl_tr, X_te, ycl_te)
-    logger.info("Training regressors")
+    clf.fit_evaluate(X_train, ycl_train, X_valid, ycl_valid, X_test, ycl_test)
+    logger.info("Training regressors; selecting by validation RMSE")
     reg = RegressorSuite(config.random_state)
-    reg.fit_evaluate(X_tr, yr_tr, X_te, yr_te)
+    reg.fit_evaluate(X_train, yr_train, X_valid, yr_valid, X_test, yr_test)
 
     logger.info("Fitting recommenders")
     popularity = PopularityRecommender().fit(split.history)
     item_item = ItemItemRecommender().fit(split.history)
     rec_metrics = {
-        "popularity_baseline": evaluate_recommender(popularity, split.history,
-                                                    split.future, config.top_k),
-        "item_item_cf": evaluate_recommender(item_item, split.history,
-                                             split.future, config.top_k),
+        "popularity_baseline": evaluate_recommender(popularity, split.history, split.future, config.top_k),
+        "item_item_cf": evaluate_recommender(item_item, split.history, split.future, config.top_k),
     }
 
     results = {
+        "evaluation_protocol": {
+            "customer_split": {"train": round(len(X_train) / len(X), 4),
+                               "validation": round(len(X_valid) / len(X), 4),
+                               "test": round(len(X_test) / len(X), 4)},
+            "model_selection": "validation only",
+            "final_test": "selected model refit on train + validation, then evaluated once",
+            "temporal_horizon_days": config.horizon_days,
+            "test_size_config": config.test_size,
+        },
         "data": {
             "sales_rows": int(len(sales)),
             "customers_modelled": int(len(features)),
             "cutoff_date": str(split.cutoff.date()),
+            "last_future_date": str(pd.to_datetime(split.future["invoice_date"]).max().date()),
             "repurchase_rate": float(y_cls.mean()),
         },
-        "classification": {"best_model": clf.best_name, "metrics": clf.metrics},
-        "regression": {"best_model": reg.best_name, "metrics": reg.metrics},
+        "classification": {"best_model": clf.best_name,
+                            "validation_metrics_by_model": clf.validation_metrics,
+                            "final_test_metrics": clf.test_metrics},
+        "regression": {"best_model": reg.best_name,
+                       "validation_metrics_by_model": reg.validation_metrics,
+                       "final_test_metrics": reg.test_metrics},
         "recommendation": rec_metrics,
     }
     out = config.output_dir
@@ -90,8 +108,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     config = Config(data_dir=Path(args.data_dir), output_dir=Path(args.output_dir),
-                    artifact_dir=Path(args.artifact_dir),
-                    horizon_days=args.horizon_days)
+                    artifact_dir=Path(args.artifact_dir), horizon_days=args.horizon_days)
     try:
         results = run(config)
     except RetailMLError as exc:
